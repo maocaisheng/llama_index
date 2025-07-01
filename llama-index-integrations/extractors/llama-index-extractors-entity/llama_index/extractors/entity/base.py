@@ -43,8 +43,8 @@ class EntityExtractor(BaseExtractor):
     prediction_threshold: float = Field(
         default=0.5,
         description="The confidence threshold for accepting predictions.",
-        gte=0.0,
-        lte=1.0,
+        ge=0.0,
+        le=1.0,
     )
     span_joiner: str = Field(
         default=" ", description="The separator between entity names."
@@ -97,6 +97,7 @@ class EntityExtractor(BaseExtractor):
             tokenizer (Optional[Callable[[str], List[str]]]):
                 Tokenizer to use for splitting text into words.
                 Defaults to NLTK word_tokenize.
+
         """
         base_entity_map = DEFAULT_ENTITY_MAP
         if entity_map is not None:

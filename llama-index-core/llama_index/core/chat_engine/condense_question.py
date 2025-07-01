@@ -272,7 +272,7 @@ class CondenseQuestionChatEngine(BaseChatEngine):
     async def achat(
         self, message: str, chat_history: Optional[List[ChatMessage]] = None
     ) -> AgentChatResponse:
-        chat_history = chat_history or self._memory.get(input=message)
+        chat_history = chat_history or await self._memory.aget(input=message)
 
         # Generate standalone question from conversation context and last message
         condensed_question = await self._acondense_question(chat_history, message)
@@ -305,8 +305,8 @@ class CondenseQuestionChatEngine(BaseChatEngine):
         )
 
         # Record response
-        self._memory.put(ChatMessage(role=MessageRole.USER, content=message))
-        self._memory.put(
+        await self._memory.aput(ChatMessage(role=MessageRole.USER, content=message))
+        await self._memory.aput(
             ChatMessage(role=MessageRole.ASSISTANT, content=str(query_response))
         )
 
@@ -316,7 +316,7 @@ class CondenseQuestionChatEngine(BaseChatEngine):
     async def astream_chat(
         self, message: str, chat_history: Optional[List[ChatMessage]] = None
     ) -> StreamingAgentChatResponse:
-        chat_history = chat_history or self._memory.get(input=message)
+        chat_history = chat_history or await self._memory.aget(input=message)
 
         # Generate standalone question from conversation context and last message
         condensed_question = await self._acondense_question(chat_history, message)
@@ -352,14 +352,17 @@ class CondenseQuestionChatEngine(BaseChatEngine):
         if isinstance(query_response, AsyncStreamingResponse):
             # override the generator to include writing to chat history
             # TODO: query engine does not support async generator yet
-            self._memory.put(ChatMessage(role=MessageRole.USER, content=message))
+            await self._memory.aput(ChatMessage(role=MessageRole.USER, content=message))
             response = StreamingAgentChatResponse(
                 achat_stream=aresponse_gen_from_query_engine(
                     query_response.async_response_gen()
                 ),
                 sources=[tool_output],
             )
-            asyncio.create_task(response.awrite_response_to_history(self._memory))
+            response.awrite_response_to_history_task = asyncio.create_task(
+                response.awrite_response_to_history(self._memory)
+            )
+
         else:
             raise ValueError("Streaming is not enabled. Please use achat() instead.")
         return response

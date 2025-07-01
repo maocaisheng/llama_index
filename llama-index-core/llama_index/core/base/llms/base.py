@@ -1,6 +1,7 @@
 from abc import abstractmethod
 from typing import (
     Any,
+    List,
     Sequence,
 )
 
@@ -13,6 +14,7 @@ from llama_index.core.base.llms.types import (
     CompletionResponseAsyncGen,
     CompletionResponseGen,
     LLMMetadata,
+    TextBlock,
 )
 from llama_index.core.base.query_pipeline.query import (
     ChainableMixin,
@@ -40,15 +42,38 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
     @property
     @abstractmethod
     def metadata(self) -> LLMMetadata:
-        """LLM metadata.
+        """
+        LLM metadata.
 
         Returns:
             LLMMetadata: LLM metadata containing various information about the LLM.
+
         """
+
+    def convert_chat_messages(self, messages: Sequence[ChatMessage]) -> List[Any]:
+        """Convert chat messages to an LLM specific message format."""
+        converted_messages = []
+        for message in messages:
+            if isinstance(message.content, str):
+                converted_messages.append(message)
+            elif isinstance(message.content, List):
+                content_string = ""
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        content_string += block.text
+                    else:
+                        raise ValueError("LLM only supports text inputs")
+                message.content = content_string
+                converted_messages.append(message)
+            else:
+                raise ValueError(f"Invalid message content: {message.content!s}")
+
+        return converted_messages
 
     @abstractmethod
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        """Chat endpoint for LLM.
+        """
+        Chat endpoint for LLM.
 
         Args:
             messages (Sequence[ChatMessage]):
@@ -66,13 +91,15 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
             response = llm.chat([ChatMessage(role="user", content="Hello")])
             print(response.content)
             ```
+
         """
 
     @abstractmethod
     def complete(
         self, prompt: str, formatted: bool = False, **kwargs: Any
     ) -> CompletionResponse:
-        """Completion endpoint for LLM.
+        """
+        Completion endpoint for LLM.
 
         If the LLM is a chat model, the prompt is transformed into a single `user` message.
 
@@ -92,13 +119,15 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
             response = llm.complete("your prompt")
             print(response.text)
             ```
+
         """
 
     @abstractmethod
     def stream_chat(
         self, messages: Sequence[ChatMessage], **kwargs: Any
     ) -> ChatResponseGen:
-        """Streaming chat endpoint for LLM.
+        """
+        Streaming chat endpoint for LLM.
 
         Args:
             messages (Sequence[ChatMessage]):
@@ -118,13 +147,15 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
             for response in gen:
                 print(response.delta, end="", flush=True)
             ```
+
         """
 
     @abstractmethod
     def stream_complete(
         self, prompt: str, formatted: bool = False, **kwargs: Any
     ) -> CompletionResponseGen:
-        """Streaming completion endpoint for LLM.
+        """
+        Streaming completion endpoint for LLM.
 
         If the LLM is a chat model, the prompt is transformed into a single `user` message.
 
@@ -146,6 +177,7 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
             for response in gen:
                 print(response.text, end="", flush=True)
             ```
+
         """
 
     # ===== Async Endpoints =====
@@ -153,7 +185,8 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
     async def achat(
         self, messages: Sequence[ChatMessage], **kwargs: Any
     ) -> ChatResponse:
-        """Async chat endpoint for LLM.
+        """
+        Async chat endpoint for LLM.
 
         Args:
             messages (Sequence[ChatMessage]):
@@ -171,13 +204,15 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
             response = await llm.achat([ChatMessage(role="user", content="Hello")])
             print(response.content)
             ```
+
         """
 
     @abstractmethod
     async def acomplete(
         self, prompt: str, formatted: bool = False, **kwargs: Any
     ) -> CompletionResponse:
-        """Async completion endpoint for LLM.
+        """
+        Async completion endpoint for LLM.
 
         If the LLM is a chat model, the prompt is transformed into a single `user` message.
 
@@ -197,13 +232,15 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
             response = await llm.acomplete("your prompt")
             print(response.text)
             ```
+
         """
 
     @abstractmethod
     async def astream_chat(
         self, messages: Sequence[ChatMessage], **kwargs: Any
     ) -> ChatResponseAsyncGen:
-        """Async streaming chat endpoint for LLM.
+        """
+        Async streaming chat endpoint for LLM.
 
         Args:
             messages (Sequence[ChatMessage]):
@@ -223,13 +260,15 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
             async for response in gen:
                 print(response.delta, end="", flush=True)
             ```
+
         """
 
     @abstractmethod
     async def astream_complete(
         self, prompt: str, formatted: bool = False, **kwargs: Any
     ) -> CompletionResponseAsyncGen:
-        """Async streaming completion endpoint for LLM.
+        """
+        Async streaming completion endpoint for LLM.
 
         If the LLM is a chat model, the prompt is transformed into a single `user` message.
 
@@ -251,4 +290,5 @@ class BaseLLM(ChainableMixin, BaseComponent, DispatcherSpanMixin):
             async for response in gen:
                 print(response.text, end="", flush=True)
             ```
+
         """

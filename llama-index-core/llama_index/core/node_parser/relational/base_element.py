@@ -14,7 +14,13 @@ from llama_index.core.bridge.pydantic import (
 from llama_index.core.callbacks.base import CallbackManager
 from llama_index.core.llms.llm import LLM
 from llama_index.core.node_parser.interface import NodeParser
-from llama_index.core.schema import BaseNode, Document, IndexNode, TextNode
+from llama_index.core.schema import (
+    BaseNode,
+    Document,
+    IndexNode,
+    MetadataMode,
+    TextNode,
+)
 from llama_index.core.utils import get_tqdm_iterable
 
 DEFAULT_SUMMARY_QUERY_STR = """\
@@ -191,7 +197,10 @@ class BaseElementNodeParser(NodeParser):
             query_engine = index.as_query_engine(llm=llm, output_cls=TableOutput)
             try:
                 response = await query_engine.aquery(summary_query_str)
-                return cast(PydanticResponse, response).response
+                if isinstance(response, PydanticResponse):
+                    return response.response
+                else:
+                    raise ValueError(f"Expected PydanticResponse, got {type(response)}")
             except (ValidationError, ValueError):
                 # There was a pydantic validation error, so we will run with text completion
                 # fill in the summary and leave other fields blank
@@ -216,20 +225,23 @@ class BaseElementNodeParser(NodeParser):
         llm = self.llm or Settings.llm
 
         table_context_list = []
-        for idx, element in tqdm(enumerate(elements)):
-            if element.type not in ("table", "table_text"):
-                continue
-            table_context = str(element.element)
-            if idx > 0 and str(elements[idx - 1].element).lower().strip().startswith(
-                "table"
-            ):
-                table_context = str(elements[idx - 1].element) + "\n" + table_context
-            if idx < len(elements) + 1 and str(
-                elements[idx - 1].element
-            ).lower().strip().startswith("table"):
-                table_context += "\n" + str(elements[idx + 1].element)
+        if elements:
+            for idx, element in tqdm(enumerate(elements)):
+                if element.type not in ("table", "table_text"):
+                    continue
+                table_context = str(element.element)
+                if idx > 0 and str(
+                    elements[idx - 1].element
+                ).lower().strip().startswith("table"):
+                    table_context = (
+                        str(elements[idx - 1].element) + "\n" + table_context
+                    )
+                if idx < len(elements) + 1 and str(
+                    elements[idx - 1].element
+                ).lower().strip().startswith("table"):
+                    table_context += "\n" + str(elements[idx + 1].element)
 
-            table_context_list.append(table_context)
+                table_context_list.append(table_context)
 
         async def _get_table_output(table_context: str, summary_query_str: str) -> Any:
             index = SummaryIndex.from_documents(
@@ -257,7 +269,8 @@ class BaseElementNodeParser(NodeParser):
     def get_base_nodes_and_mappings(
         self, nodes: List[BaseNode]
     ) -> Tuple[List[BaseNode], Dict]:
-        """Get base nodes and mappings.
+        """
+        Get base nodes and mappings.
 
         Given a list of nodes and IndexNode objects, return the base nodes and a mapping
         from index id to child nodes (which are excluded from the base nodes).
@@ -325,7 +338,7 @@ class BaseElementNodeParser(NodeParser):
 
         node_parser = self.nested_node_parser or SentenceSplitter()
 
-        nodes = []
+        nodes: List[BaseNode] = []
         cur_text_el_buffer: List[str] = []
         for element in elements:
             if element.type == "table" or element.type == "table_text":
@@ -376,15 +389,17 @@ class BaseElementNodeParser(NodeParser):
                 # attempt to find start_char_idx for table
                 # raw table string regardless if perfect or not is stored in element.element
 
-                start_char_idx: Optional[int] = None
-                end_char_idx: Optional[int] = None
                 if ref_doc_text:
                     start_char_idx = ref_doc_text.find(str(element.element))
                     if start_char_idx >= 0:
                         end_char_idx = start_char_idx + len(str(element.element))
                     else:
-                        start_char_idx = None
-                        end_char_idx = None
+                        start_char_idx = None  # type: ignore
+                        end_char_idx = None  # type: ignore
+                else:
+                    start_char_idx = None  # type: ignore
+                    end_char_idx = None  # type: ignore
+
                 # shared index_id and node_id
                 node_id = str(uuid.uuid4())
                 index_node = IndexNode(
@@ -440,7 +455,11 @@ class BaseElementNodeParser(NodeParser):
                 node.excluded_llm_metadata_keys = (
                     node_inherited.excluded_llm_metadata_keys
                 )
-        return [node for node in nodes if len(node.get_content()) > 0]
+        return [
+            node
+            for node in nodes
+            if len(node.get_content(metadata_mode=MetadataMode.NONE)) > 0
+        ]
 
     def __call__(self, nodes: Sequence[BaseNode], **kwargs: Any) -> List[BaseNode]:
         nodes = self.get_nodes_from_documents(nodes, **kwargs)  # type: ignore

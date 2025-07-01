@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, Callable, Dict, List, Optional
 
@@ -16,7 +17,11 @@ DEFAULT_TOKEN_LIMIT = 3000
 
 
 class ChatMemoryBuffer(BaseChatStoreMemory):
-    """Simple buffer for storing chat history."""
+    """
+    Deprecated: Please use `llama_index.core.memory.Memory` instead.
+
+    Simple buffer for storing chat history.
+    """
 
     token_limit: int
     tokenizer_fn: Callable[[str], List] = Field(
@@ -38,7 +43,7 @@ class ChatMemoryBuffer(BaseChatStoreMemory):
             raise ValueError("Token limit must be set and greater than 0.")
 
         # Validate tokenizer -- this avoids errors when loading from json/dict
-        tokenizer_fn = values.get("tokenizer_fn", None)
+        tokenizer_fn = values.get("tokenizer_fn")
         if tokenizer_fn is None:
             values["tokenizer_fn"] = get_tokenizer()
 
@@ -84,7 +89,6 @@ class ChatMemoryBuffer(BaseChatStoreMemory):
     def from_string(cls, json_str: str) -> "ChatMemoryBuffer":
         """Create a chat memory buffer from a string."""
         dict_obj = json.loads(json_str)
-        print(f"dict_obj: {dict_obj}", flush=True)
         return cls.from_dict(dict_obj)
 
     def to_dict(self, **kwargs: Any) -> dict:
@@ -123,15 +127,16 @@ class ChatMemoryBuffer(BaseChatStoreMemory):
 
         while token_count > self.token_limit and message_count > 1:
             message_count -= 1
-            if chat_history[-message_count].role == MessageRole.TOOL:
-                # all tool messages should be preceded by an assistant message
-                # if we remove a tool message, we need to remove the assistant message too
-                message_count -= 1
-
-            if chat_history[-message_count].role == MessageRole.ASSISTANT:
+            while chat_history[-message_count].role in (
+                MessageRole.TOOL,
+                MessageRole.ASSISTANT,
+            ):
                 # we cannot have an assistant message at the start of the chat history
                 # if after removal of the first, we have an assistant message,
                 # we need to remove the assistant message too
+                #
+                # all tool messages should be preceded by an assistant message
+                # if we remove a tool message, we need to remove the assistant message too
                 message_count -= 1
 
             cur_messages = chat_history[-message_count:]
@@ -144,6 +149,14 @@ class ChatMemoryBuffer(BaseChatStoreMemory):
             return []
 
         return chat_history[-message_count:]
+
+    async def aget(
+        self, input: Optional[str] = None, initial_token_count: int = 0, **kwargs: Any
+    ) -> List[ChatMessage]:
+        """Get chat history."""
+        return await asyncio.to_thread(
+            self.get, input=input, initial_token_count=initial_token_count, **kwargs
+        )
 
     def _token_count_for_messages(self, messages: List[ChatMessage]) -> int:
         if len(messages) <= 0:

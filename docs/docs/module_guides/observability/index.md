@@ -35,7 +35,80 @@ Note that all `kwargs` to `set_global_handler` are passed to the underlying call
 
 And that's it! Executions will get seamlessly piped to downstream service and you'll be able to access features such as viewing execution traces of your application.
 
-## Partner `One-Click` Integrations
+## Integrations
+
+### OpenTelemetry
+
+[OpenTelemetry](https://openetelemetry.io) is a widely used open-source service for tracing and observability, with numerous backend integrations (such as Jaeger, Zipkin or Prometheus).
+
+Our OpenTelemetry integration traces all the events produced by pieces of LlamaIndex code, including LLMs, Agents, RAG pipeline components and many more: everything you would get out with LlamaIndex native instrumentation you can export in OpenTelemetry format!
+
+You can install the library with:
+
+```bash
+pip install llama-index-observability-otel
+```
+
+And can use it in your code with the default settings, as in this example with a RAG pipeline:
+
+```python
+from llama_index.observability.otel import LlamaIndexOpenTelemetry
+from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
+from llama_index.llms.openai import OpenAI
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core import Settings
+
+# initialize the instrumentation object
+instrumentor = LlamaIndexOpenTelemetry()
+
+if __name__ == "__main__":
+    embed_model = OpenAIEmbedding(model_name="text-embedding-3-small")
+    llm = OpenAI(model="gpt-4.1-mini")
+
+    # start listening!
+    instrumentor.start_registering()
+
+    # register events
+    documents = SimpleDirectoryReader(
+        input_dir="./data/paul_graham/"
+    ).load_data()
+
+    index = VectorStoreIndex.from_documents(documents, embed_model=embed_model)
+    query_engine = index.as_query_engine(llm=llm)
+
+    query_result_one = query_engine.query("Who is Paul?")
+    query_result_two = query_engine.query("What did Paul do?")
+```
+
+Or you can use a more complex and customized set-up, such as in the following example:
+
+```python
+import json
+from pydantic import BaseModel, Field
+from typing import List
+
+from llama_index.observability.otel import LlamaIndexOpenTelemetry
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter,
+)
+
+# define a custom span exporter
+span_exporter = OTLPSpanExporter("http://0.0.0.0:4318/v1/traces")
+
+# initialize the instrumentation object
+instrumentor = LlamaIndexOpenTelemetry(
+    service_name_or_resource="my.test.service.1",
+    span_exporter=span_exporter,
+    debug=True,
+)
+
+
+if __name__ == "__main__":
+    instrumentor.start_registering()
+    # ... your code here
+```
+
+We also have a [demo repository](https://github.com/run-llama/agents-observability-demo) where we show how to trace agentic workflows and pipe the registered traces into a Postgres database.
 
 ### LlamaTrace (Hosted Arize Phoenix)
 
@@ -79,6 +152,37 @@ llama_index.core.set_global_handler(
 
 ![](../../_static/integrations/arize_phoenix.png)
 
+
+### MLflow
+
+[MLflow](https://mlflow.org/docs/latest/llms/tracing/index.html) is an open-source MLOps/LLMOps platform, focuses on the full lifecycle for machine learning projects, ensuring that each phase is manageable, traceable, and reproducible.
+**MLflow Tracing** is an OpenTelemetry-based tracing capability and supports one-click instrumentation for LlamaIndex applications.
+
+#### Usage Pattern
+
+Since MLflow is open-source, you can start using it without any account creation or API key setup. Jump straight into the code after installing the MLflow package!
+
+```python
+import mlflow
+
+mlflow.llama_index.autolog()  # Enable mlflow tracing
+```
+
+![](../../_static/integrations/mlflow/mlflow.gif)
+
+#### Guides
+
+MLflow LlamaIndex integration also provides experiment tracking, evaluation, dependency management, and more. Check out the [MLflow documentation](https://mlflow.org/docs/latest/llms/llama-index/index.html) for more details.
+
+#### Support Table
+
+MLflow Tracing support the full range of LlamaIndex features. Some new features like [AgentWorkflow](https://www.llamaindex.ai/blog/introducing-agentworkflow-a-powerful-system-for-building-ai-agent-systems) requires MLflow >= 2.18.0.
+
+| Streaming | Async | Engine | Agents | Workflow | AgentWorkflow |
+| --- | --- | --- | --- | --- | --- |
+| ✅ |  ✅ | ✅ | ✅ | ✅ (>= 2.18) | ✅  (>= 2.18) |
+
+
 ### OpenLLMetry
 
 [OpenLLMetry](https://github.com/traceloop/openllmetry) is an open-source project based on OpenTelemetry for tracing and monitoring
@@ -94,7 +198,7 @@ Traceloop.init()
 
 #### Guides
 
-- [OpenLLMetry](../../examples/callbacks/OpenLLMetry.ipynb)
+- [OpenLLMetry](../../examples/observability/OpenLLMetry.ipynb)
 
 ![](../../_static/integrations/openllmetry.png)
 
@@ -134,6 +238,65 @@ llama_index.core.set_global_handler("arize_phoenix")
 - [Auto-Retrieval Guide with Pinecone and Arize Phoenix](https://docs.llamaindex.ai/en/latest/examples/vector_stores/pinecone_auto_retriever/?h=phoenix)
 - [Arize Phoenix Tracing Tutorial](https://colab.research.google.com/github/Arize-ai/phoenix/blob/main/tutorials/tracing/llama_index_tracing_tutorial.ipynb)
 
+### Langfuse 🪢
+
+[Langfuse](https://langfuse.com/docs) is an open source LLM engineering platform to help teams collaboratively debug, analyze and iterate on their LLM Applications. With the Langfuse integration, you can track and monitor performance, traces, and metrics of your LlamaIndex application. Detailed [traces](https://langfuse.com/docs/tracing) of the context augmentation and the LLM querying processes are captured and can be inspected directly in the Langfuse UI.
+
+#### Usage Pattern
+
+Make sure you have both `llama-index` and `langfuse` installed.
+
+```bash
+pip install llama-index langfuse openinference-instrumentation-llama-index
+```
+
+Next, set up your Langfuse API keys. You can get these keys by signing up for a free [Langfuse Cloud](https://cloud.langfuse.com/) account or by [self-hosting Langfuse](https://langfuse.com/self-hosting). These environment variables are essential for the Langfuse client to authenticate and send data to your Langfuse project.
+
+```python
+import os
+
+# Get keys for your project from the project settings page: https://cloud.langfuse.com
+
+os.environ["LANGFUSE_PUBLIC_KEY"] = "pk-lf-..."
+os.environ["LANGFUSE_SECRET_KEY"] = "sk-lf-..."
+os.environ["LANGFUSE_HOST"] = "https://cloud.langfuse.com"  # 🇪🇺 EU region
+# os.environ["LANGFUSE_HOST"] = "https://us.cloud.langfuse.com" # 🇺🇸 US region
+```
+
+With the environment variables set, we can now initialize the Langfuse client. `get_client()` initializes the Langfuse client using the credentials provided in the environment variables.
+
+```python
+from langfuse import get_client
+
+langfuse = get_client()
+
+# Verify connection
+if langfuse.auth_check():
+    print("Langfuse client is authenticated and ready!")
+else:
+    print("Authentication failed. Please check your credentials and host.")
+```
+
+Now, we initialize the [OpenInference LlamaIndex instrumentation](https://docs.arize.com/phoenix/tracing/integrations-tracing/llamaindex). This third-party instrumentation automatically captures LlamaIndex operations and exports OpenTelemetry (OTel) spans to Langfuse.
+
+```python
+from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
+
+# Initialize LlamaIndex instrumentation
+LlamaIndexInstrumentor().instrument()
+```
+
+You can now see the logs of your LlamaIndex application in Langfuse:
+
+[LlamaIndex example trace](https://langfuse.com/images/cookbook/integration-llamaindex-workflows/llamaindex-trace.gif)
+
+_[Example trace link in Langfuse](https://cloud.langfuse.com/project/cloramnkj0002jz088vzn1ja4/traces/6f554d6b-a2bc-4fba-904f-aa54de2897ca?display=preview)_
+
+#### Example Guides
+
+- [Langfuse Documentation](https://langfuse.com/docs/integrations/llama-index/get-started)
+- [Tracing LlamaIndex Agents](https://langfuse.com/docs/integrations/llama-index/workflows)
+
 ### Literal AI
 
 [Literal AI](https://literalai.com/) is the go-to LLM evaluation and observability solution, enabling engineering and product teams to ship LLM applications reliably, faster and at scale. This is possible through a collaborative development cycle involving prompt engineering, LLM observability, LLM evaluation and LLM monitoring. Conversation Threads and Agent Runs can be automatically logged on Literal AI.
@@ -162,7 +325,163 @@ set_global_handler("literalai")
 - [Literal AI integration with Llama Index](https://docs.getliteral.ai/integrations/llama-index)
 - [Build a Q&A application with LLamaIndex and monitor it with Literal AI](https://github.com/Chainlit/literal-cookbook/blob/main/python/llamaindex-integration)
 
-![](../../_static/integrations/literal_ai.gif)
+### Comet Opik
+
+[Opik](https://www.comet.com/docs/opik/?utm_source=llama-index&utm_medium=docs&utm_campaign=opik&utm_content=home_page) is an open-source end to end LLM Evaluation Platform built by Comet.
+
+To get started, simply sign up for an account on [Comet](https://www.comet.com/signup?from=llm&utm_medium=github&utm_source=llama-index&utm_campaign=opik) and grab your API key.
+
+#### Usage Pattern
+
+- Install the Opik Python SDK with `pip install opik`
+- In Opik, get your API key from the user menu.
+- If you are using a self-hosted instance of Opik, also make note of its base URL.
+
+You can configure Opik using the environment variables `OPIK_API_KEY`, `OPIK_WORKSPACE` and `OPIK_URL_OVERRIDE` if you are using a [self-hosted instance](https://www.comet.com/docs/opik/self-host/self_hosting_opik). You can set these by calling:
+
+```bash
+export OPIK_API_KEY="<OPIK_API_KEY>"
+export OPIK_WORKSPACE="<OPIK_WORKSPACE - Often the same as your API key>"
+
+# Optional
+#export OPIK_URL_OVERRIDE="<OPIK_URL_OVERRIDE>"
+```
+
+You can now use the Opik integration with LlamaIndex by setting the global handler:
+
+```python
+from llama_index.core import Document, VectorStoreIndex, set_global_handler
+
+# You should provide your OPIK API key and Workspace using the following environment variables:
+# OPIK_API_KEY, OPIK_WORKSPACE
+set_global_handler(
+    "opik",
+)
+
+# This example uses OpenAI by default so don't forget to set an OPENAI_API_KEY
+index = VectorStoreIndex.from_documents([Document.example()])
+query_engine = index.as_query_engine()
+
+questions = [
+    "Tell me about LLMs",
+    "How do you fine-tune a neural network ?",
+    "What is RAG ?",
+]
+
+for question in questions:
+    print(f"> \033[92m{question}\033[0m")
+    response = query_engine.query(question)
+    print(response)
+```
+
+You will see the following traces in Opik:
+
+![Opik integration with LlamaIndex](../../_static/integrations/opik.png)
+
+#### Example Guides
+
+- [Llama-index + Opik documentation page](https://www.comet.com/docs/opik/tracing/integrations/llama_index?utm_source=llamaindex&utm_medium=docs&utm_campaign=opik)
+- [Llama-index integration cookbook](https://www.comet.com/docs/opik/cookbook/llama-index?utm_source=llama-index&utm_medium=docs&utm_campaign=opik)
+
+### Argilla
+
+[Argilla](https://github.com/argilla-io/argilla) is a collaboration tool for AI engineers and domain experts who need to build high-quality datasets for their projects.
+
+To get started, you need to deploy the Argilla server. If you have not done so, you can easily deploy it following this [guide](https://docs.argilla.io/latest/getting_started/quickstart/).
+
+#### Usage Pattern
+
+- Install the Argilla LlamaIndex integration package with `pip install argilla-llama-index`
+- Initialize the ArgillaHandler. The `<api_key>` is in the `My Settings` page of your Argilla Space but make sure you are logged in with the `owner` account you used to create the Space. The `<api_url>` is the URL shown in your browser.
+- Add the ArgillaHandler to the dispatcher.
+
+```python
+from llama_index.core.instrumentation import get_dispatcher
+from argilla_llama_index import ArgillaHandler
+
+argilla_handler = ArgillaHandler(
+    dataset_name="query_llama_index",
+    api_url="http://localhost:6900",
+    api_key="argilla.apikey",
+    number_of_retrievals=2,
+)
+root_dispatcher = get_dispatcher()
+root_dispatcher.add_span_handler(argilla_handler)
+root_dispatcher.add_event_handler(argilla_handler)
+```
+
+#### Example Guides
+
+- [Getting started with Argilla's LlamaIndex Integration](https://github.com/argilla-io/argilla-llama-index/blob/main/docs/tutorials/getting_started.ipynb)
+- [Other example tutorials](https://github.com/argilla-io/argilla-llama-index/tree/main/docs/tutorials)
+
+![Argilla integration with LlamaIndex](../../_static/integrations/argilla.png)
+
+### Agenta
+
+[Agenta](https://agenta.ai) is an **open-source** LLMOps platform that helps developers and product teams build robust AI applications powered by LLMs. It offers all the tools for **observability**, **prompt management and engineering**, and **LLM evaluation**.
+
+#### Usage Pattern
+
+Install the necessary dependencies for the integration:
+
+```bash
+pip install agenta llama-index openinference-instrumentation-llama-index
+```
+
+Set up your API credentials and initialize Agenta:
+
+```python
+import os
+import agenta as ag
+from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
+
+# Set your Agenta credentials
+os.environ["AGENTA_API_KEY"] = "your_agenta_api_key"
+os.environ[
+    "AGENTA_HOST"
+] = "https://cloud.agenta.ai"  # Use your self-hosted URL if applicable
+
+# Initialize Agenta SDK
+ag.init()
+
+# Enable LlamaIndex instrumentation
+LlamaIndexInstrumentor().instrument()
+```
+
+Build your instrumented application:
+
+```python
+@ag.instrument()
+def document_search_app(user_query: str):
+    """
+    Document search application using LlamaIndex.
+    Loads documents, builds a searchable index, and answers user queries.
+    """
+    # Load documents from local directory
+    docs = SimpleDirectoryReader("data").load_data()
+
+    # Build vector search index
+    search_index = VectorStoreIndex.from_documents(docs)
+
+    # Initialize query processor
+    query_processor = search_index.as_query_engine()
+
+    # Process user query
+    answer = query_processor.query(user_query)
+
+    return answer
+```
+
+Once this is set up, Agenta will automatically capture all execution steps. You can then view the traces in Agenta to debug your application, link them to specific configurations and prompts, evaluate their performance, query the data, and monitor key metrics.
+
+![Agenta integration with LlamaIndex](../../_static/integrations/agenta.png)
+
+#### Example Guides
+
+- [Documentation Observability for LlamaIndex with Agenta](https://docs.agenta.ai/observability/integrations/llamaindex)
+- [Notebook Observability for LlamaIndex with Agenta](https://github.com/agenta-ai/agenta/blob/main/examples/jupyter/integrations/observability-openinference-llamaindex.ipynb)
+
 
 ## Other Partner `One-Click` Integrations (Legacy Modules)
 
@@ -170,7 +489,7 @@ These partner integrations use our legacy `CallbackManager` or third-party calls
 
 ### Langfuse
 
-[Langfuse](https://langfuse.com/docs) is an open source LLM engineering platform to help teams collaboratively debug, analyze and iterate on their LLM Applications. With the Langfuse integration, you can seamlessly track and monitor performance, traces, and metrics of your LlamaIndex application. Detailed traces of the LlamaIndex context augmentation and the LLM querying processes are captured and can be inspected directly in the Langfuse UI.
+This integration is deprecated. We recommend using the new instrumentation-based integration with Langfuse as described [here](https://langfuse.com/docs/integrations/llama-index/get-started).
 
 #### Usage Pattern
 
@@ -187,7 +506,8 @@ set_global_handler("langfuse")
 
 #### Guides
 
-- [Langfuse Callback Handler](../../examples/callbacks/LangfuseCallbackHandler.ipynb)
+- [Langfuse Callback Handler](../../examples/observability/LangfuseCallbackHandler.ipynb)
+- [Langfuse Tracing with PostHog](../../examples/observability/LangfuseMistralPostHog.ipynb)
 
 ![langfuse-tracing](https://static.langfuse.com/llamaindex-langfuse-docs.gif)
 
@@ -386,8 +706,6 @@ from langtrace_python_sdk import (
 langtrace.init(api_key="<LANGTRACE_API_KEY>")
 ```
 
-![](../../_static/integrations/langtrace.gif)
-
 #### Guides
 
 - [Langtrace](https://docs.langtrace.ai/supported-integrations/llm-frameworks/llamaindex)
@@ -409,8 +727,6 @@ import openlit
 
 openlit.init()
 ```
-
-![](../../_static/integrations/openlit.gif)
 
 #### Guides
 
@@ -451,39 +767,6 @@ import llama_index.core
 
 llama_index.core.set_global_handler("simple")
 ```
-
-### MLflow
-
-[MLflow](https://mlflow.org/docs/latest/index.html) is an open-source platform, purpose-built to assist machine learning practitioners and teams in handling the complexities of the machine learning process. MLflow focuses on the full lifecycle for machine learning projects, ensuring that each phase is manageable, traceable, and reproducible.
-
-##### Install
-
-```shell
-pip install mlflow>=2.15 llama-index>=0.10.44
-```
-
-#### Usage Pattern
-
-```python
-import mlflow
-
-mlflow.llama_index.autolog()  # Enable mlflow tracing
-
-with mlflow.start_run() as run:
-    mlflow.llama_index.log_model(
-        index,
-        artifact_path="llama_index",
-        engine_type="query",  # Logged engine type for inference
-        input_example="hi",
-        registered_model_name="my_llama_index_vector_store",
-    )
-    model_uri = f"runs:/{run.info.run_id}/llama_index"
-
-predictions = mlflow.pyfunc.load_model(model_uri).predict("hi")
-print(f"Query engine prediction: {predictions}")
-```
-
-![](../../_static/integrations/mlflow.gif)
 
 #### Guides
 

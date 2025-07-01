@@ -90,7 +90,8 @@ def extract_logprobs_stream(response) -> Optional[List[List[LogProb]]]:
 
 
 class MistralRS(CustomLLM):
-    r"""MistralRS LLM.
+    r"""
+    MistralRS LLM.
 
     Examples:
         Install `mistralrs` following instructions:
@@ -126,6 +127,7 @@ class MistralRS(CustomLLM):
         response = llm.complete("Hello, how are you?")
         print(str(response))
         ```
+
     """
 
     model_url: Optional[str] = Field(description="local")
@@ -133,8 +135,8 @@ class MistralRS(CustomLLM):
     temperature: float = Field(
         default=DEFAULT_TEMPERATURE,
         description="The temperature to use for sampling.",
-        gte=0.0,
-        lte=1.0,
+        ge=0.0,
+        le=1.0,
     )
     max_new_tokens: int = Field(
         default=DEFAULT_NUM_OUTPUTS,

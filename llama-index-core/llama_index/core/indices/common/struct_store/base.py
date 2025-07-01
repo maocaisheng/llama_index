@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 
 
 class SQLDocumentContextBuilder:
-    """Builder that builds context for a given set of SQL tables.
+    """
+    Builder that builds context for a given set of SQL tables.
 
     Args:
         sql_database (Optional[SQLDatabase]): SQL database to use,
@@ -40,6 +41,7 @@ class SQLDocumentContextBuilder:
         table_context_task (Optional[str]): The query to perform
             on the table context. A default query string is used
             if none is provided by the user.
+
     """
 
     def __init__(
@@ -98,7 +100,9 @@ class SQLDocumentContextBuilder:
 
         text_splitter = (
             self._text_splitter
-            or self._prompt_helper.get_text_splitter_given_prompt(prompt_with_schema)
+            or self._prompt_helper.get_text_splitter_given_prompt(
+                prompt_with_schema, llm=self._llm
+            )
         )
         # we use the ResponseBuilder to iteratively go through all texts
         response_builder = get_response_synthesizer(
@@ -155,12 +159,12 @@ class BaseStructDatapointExtractor:
                 continue
             # if expected type is int or float, try to convert value to int or float
             expected_type = col_types_map[field]
-            if expected_type == int:
+            if expected_type is int:
                 try:
                     clean_value = int(value)
                 except ValueError:
                     continue
-            elif expected_type == float:
+            elif expected_type is float:
                 try:
                     clean_value = float(value)
                 except ValueError:

@@ -41,7 +41,8 @@ DEFAULT_LLAMA_CPP_MODEL_VERBOSITY = True
 
 
 class LlamaCPP(CustomLLM):
-    r"""LlamaCPP LLM.
+    r"""
+    LlamaCPP LLM.
 
     Examples:
         Install llama-cpp-python following instructions:
@@ -92,6 +93,7 @@ class LlamaCPP(CustomLLM):
         response = llm.complete("Hello, how are you?")
         print(str(response))
         ```
+
     """
 
     model_url: Optional[str] = Field(
@@ -103,8 +105,8 @@ class LlamaCPP(CustomLLM):
     temperature: float = Field(
         default=DEFAULT_TEMPERATURE,
         description="The temperature to use for sampling.",
-        gte=0.0,
-        lte=1.0,
+        ge=0.0,
+        le=1.0,
     )
     max_new_tokens: int = Field(
         default=DEFAULT_NUM_OUTPUTS,

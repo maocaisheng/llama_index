@@ -1,6 +1,7 @@
 """OpenAI agent worker."""
 
 import asyncio
+import deprecated
 import json
 import logging
 import uuid
@@ -60,7 +61,8 @@ def call_tool_with_error_handling(
     error_message: Optional[str] = None,
     raise_error: bool = False,
 ) -> ToolOutput:
-    """Call tool with error handling.
+    """
+    Call tool with error handling.
 
     Input is a dictionary with args and kwargs
 
@@ -89,7 +91,8 @@ def default_tool_call_parser(tool_call: OpenAIToolCall):
 
 
 def advanced_tool_call_parser(tool_call: OpenAIToolCall) -> Dict:
-    r"""Parse tool calls that are not standard json.
+    r"""
+    Parse tool calls that are not standard json.
 
     Also parses tool calls of the following forms:
     variable = \"\"\"Some long text\"\"\"
@@ -122,6 +125,14 @@ def advanced_tool_call_parser(tool_call: OpenAIToolCall) -> Dict:
         )
 
 
+@deprecated.deprecated(
+    reason=(
+        "OpenAIAgentWorker has been deprecated and is not maintained.\n\n"
+        "`FunctionAgent` is the recommended replacement.\n\n"
+        "See the docs for more information on updated agent usage: https://docs.llamaindex.ai/en/stable/understanding/agent/"
+    ),
+    action="once",
+)
 class OpenAIAgentWorker(BaseAgentWorker):
     """OpenAI Agent agent worker."""
 
@@ -168,7 +179,8 @@ class OpenAIAgentWorker(BaseAgentWorker):
         tool_call_parser: Optional[Callable[[OpenAIToolCall], Dict]] = None,
         **kwargs: Any,
     ) -> "OpenAIAgentWorker":
-        """Create an OpenAIAgent from a list of tools.
+        """
+        Create an OpenAIAgent from a list of tools.
 
         Similar to `from_defaults` in other classes, this method will
         infer defaults for a variety of parameters, including the LLM,
@@ -212,7 +224,7 @@ class OpenAIAgentWorker(BaseAgentWorker):
     def get_all_messages(self, task: Task) -> List[ChatMessage]:
         return (
             self.prefix_messages
-            + task.memory.get()
+            + task.memory.get(input=task.input)
             + task.extra_state["new_memory"].get_all()
         )
 
@@ -277,10 +289,10 @@ class OpenAIAgentWorker(BaseAgentWorker):
             sources=task.extra_state["sources"],
         )
         # create task to write chat response to history
-        asyncio.create_task(
+        chat_stream_response.awrite_response_to_history_task = asyncio.create_task(
             chat_stream_response.awrite_response_to_history(
                 task.extra_state["new_memory"],
-                on_stream_end_fn=partial(self.finalize_task, task),
+                on_stream_end_fn=partial(self.afinalize_task, task),
             )
         )
         chat_stream_response._ensure_async_setup()
@@ -516,7 +528,7 @@ class OpenAIAgentWorker(BaseAgentWorker):
 
             event.on_end(payload={EventPayload.FUNCTION_OUTPUT: str(tool_output)})
         sources.append(tool_output)
-        memory.put(function_message)
+        await memory.aput(function_message)
 
         return (
             tool.metadata.return_direct and not tool_output.is_error
@@ -548,9 +560,8 @@ class OpenAIAgentWorker(BaseAgentWorker):
     ) -> bool:
         if n_function_calls > self._max_function_calls:
             return False
-        if not tool_calls:
-            return False
-        return True
+
+        return tool_calls is not None and len(tool_calls) > 0
 
     def get_tools(self, input: str) -> List[BaseTool]:
         """Get tools."""
@@ -570,7 +581,9 @@ class OpenAIAgentWorker(BaseAgentWorker):
             )
         # TODO: see if we want to do step-based inputs
         tools = self.get_tools(task.input)
-        openai_tools = [tool.metadata.to_openai_tool() for tool in tools]
+        openai_tools = [
+            tool.metadata.to_openai_tool(skip_length_check=True) for tool in tools
+        ]
 
         llm_chat_kwargs = self._get_llm_chat_kwargs(task, openai_tools, tool_choice)
         agent_chat_response = self._get_agent_response(
@@ -661,16 +674,16 @@ class OpenAIAgentWorker(BaseAgentWorker):
                 step, task.extra_state["new_memory"], verbose=self._verbose
             )
 
-        # TODO: see if we want to do step-based inputs
         tools = self.get_tools(task.input)
-        openai_tools = [tool.metadata.to_openai_tool() for tool in tools]
+        openai_tools = [
+            tool.metadata.to_openai_tool(skip_length_check=True) for tool in tools
+        ]
 
         llm_chat_kwargs = self._get_llm_chat_kwargs(task, openai_tools, tool_choice)
         agent_chat_response = await self._get_async_agent_response(
             task, mode=mode, **llm_chat_kwargs
         )
 
-        # TODO: implement _should_continue
         latest_tool_calls = self.get_latest_tool_calls(task) or []
         latest_tool_outputs: List[ToolOutput] = []
 
@@ -678,35 +691,42 @@ class OpenAIAgentWorker(BaseAgentWorker):
             latest_tool_calls, task.extra_state["n_function_calls"]
         ):
             is_done = True
-
         else:
             is_done = False
+
+            # Validate all tool calls first
             for tool_call in latest_tool_calls:
-                # Some validation
                 if not isinstance(tool_call, get_args(OpenAIToolCall)):
                     raise ValueError("Invalid tool_call object")
-
                 if tool_call.type != "function":
                     raise ValueError("Invalid tool type. Unsupported by OpenAI")
 
-                # TODO: maybe execute this with multi-threading
-                return_direct = await self._acall_function(
-                    tools,
-                    tool_call,
-                    task.extra_state["new_memory"],
-                    latest_tool_outputs,
-                )
-                task.extra_state["sources"].append(latest_tool_outputs[-1])
+            # Execute all tool calls in parallel using asyncio.gather
+            tool_results = await asyncio.gather(
+                *[
+                    self._acall_function(
+                        tools,
+                        tool_call,
+                        task.extra_state["new_memory"],
+                        latest_tool_outputs,
+                    )
+                    for tool_call in latest_tool_calls
+                ]
+            )
 
-                # change function call to the default value, if a custom function was given
-                # as an argument (none and auto are predefined by OpenAI)
+            # Process results
+            for index, return_direct in enumerate(tool_results):
+                task.extra_state["sources"].append(latest_tool_outputs[index])
+
+                # change function call to the default value if a custom function was given
                 if tool_choice not in ("auto", "none"):
                     tool_choice = "auto"
                 task.extra_state["n_function_calls"] += 1
 
+                # If any tool call requests direct return and it's the only call
                 if return_direct and len(latest_tool_calls) == 1:
                     is_done = True
-                    response_str = latest_tool_outputs[-1].content
+                    response_str = latest_tool_outputs[index].content
                     chat_response = ChatResponse(
                         message=ChatMessage(
                             role=MessageRole.ASSISTANT, content=response_str
@@ -723,7 +743,6 @@ class OpenAIAgentWorker(BaseAgentWorker):
             [
                 step.get_next_step(
                     step_id=str(uuid.uuid4()),
-                    # NOTE: input is unused
                     input=None,
                 )
             ]
@@ -785,8 +804,17 @@ class OpenAIAgentWorker(BaseAgentWorker):
         # reset new memory
         task.extra_state["new_memory"].reset()
 
+    async def afinalize_task(self, task: Task, **kwargs: Any) -> None:
+        """Finalize task, after all the steps are completed."""
+        messages = task.extra_state["new_memory"].get_all()
+        # reset new memory before aputting messages for async race conditions
+        task.extra_state["new_memory"].reset()
+        # add new messages to memory
+        await task.memory.aput_messages(messages)
+
     def undo_step(self, task: Task, **kwargs: Any) -> Optional[TaskStep]:
-        """Undo step from task.
+        """
+        Undo step from task.
 
         If this cannot be implemented, return None.
 

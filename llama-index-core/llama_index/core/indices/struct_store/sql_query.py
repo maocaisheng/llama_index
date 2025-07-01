@@ -3,7 +3,7 @@
 import logging
 from abc import abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
-
+from llama_index.core.indices.base import BaseRetriever
 from llama_index.core.base.base_query_engine import BaseQueryEngine
 from llama_index.core.base.response.schema import (
     RESPONSE_TYPE,
@@ -35,7 +35,7 @@ from llama_index.core.prompts.prompt_type import PromptType
 from llama_index.core.response_synthesizers import (
     get_response_synthesizer,
 )
-from llama_index.core.schema import QueryBundle
+from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.core.settings import Settings
 from llama_index.core.utilities.sql_wrapper import SQLDatabase
 from sqlalchemy import Table
@@ -71,7 +71,8 @@ DEFAULT_RESPONSE_SYNTHESIS_PROMPT_V2 = PromptTemplate(
 
 
 class SQLStructStoreQueryEngine(BaseQueryEngine):
-    """GPT SQL query engine over a structured database.
+    """
+    GPT SQL query engine over a structured database.
 
     NOTE: deprecated in favor of SQLTableRetriever, kept for backward compatibility.
 
@@ -130,7 +131,8 @@ class SQLStructStoreQueryEngine(BaseQueryEngine):
 
 
 class NLStructStoreQueryEngine(BaseQueryEngine):
-    """GPT natural language query engine over a structured database.
+    """
+    GPT natural language query engine over a structured database.
 
     NOTE: deprecated in favor of SQLTableRetriever, kept for backward compatibility.
 
@@ -160,6 +162,7 @@ class NLStructStoreQueryEngine(BaseQueryEngine):
         response_synthesis_prompt (Optional[BasePromptTemplate]): A
             Response Synthesis BasePromptTemplate to use for the query. Defaults to
             DEFAULT_RESPONSE_SYNTHESIS_PROMPT.
+
     """
 
     def __init__(
@@ -218,7 +221,8 @@ class NLStructStoreQueryEngine(BaseQueryEngine):
         return response.strip()
 
     def _get_table_context(self, query_bundle: QueryBundle) -> str:
-        """Get table context.
+        """
+        Get table context.
 
         Get tables schema + optional context as a single string. Taken from
         SQLContextContainer.
@@ -316,7 +320,8 @@ def _validate_prompt(
 
 
 class BaseSQLTableQueryEngine(BaseQueryEngine):
-    """Base SQL Table query engine.
+    """
+    Base SQL Table query engine.
 
     NOTE: Any Text-to-SQL application should be aware that executing
     arbitrary SQL queries can be a security risk. It is recommended to
@@ -328,6 +333,7 @@ class BaseSQLTableQueryEngine(BaseQueryEngine):
         self,
         llm: Optional[LLM] = None,
         synthesize_response: bool = True,
+        markdown_response: bool = False,
         response_synthesis_prompt: Optional[BasePromptTemplate] = None,
         callback_manager: Optional[CallbackManager] = None,
         refine_synthesis_prompt: Optional[BasePromptTemplate] = None,
@@ -352,6 +358,7 @@ class BaseSQLTableQueryEngine(BaseQueryEngine):
         _validate_prompt(self._refine_synthesis_prompt, DEFAULT_REFINE_PROMPT)
 
         self._synthesize_response = synthesize_response
+        self._markdown_response = markdown_response
         self._verbose = verbose
         self._streaming = streaming
         super().__init__(callback_manager=callback_manager or Settings.callback_manager)
@@ -373,6 +380,27 @@ class BaseSQLTableQueryEngine(BaseQueryEngine):
     @abstractmethod
     def sql_retriever(self) -> NLSQLRetriever:
         """Get SQL retriever."""
+
+    def _format_result_markdown(self, retrieved_nodes: List[NodeWithScore]) -> str:
+        """Format the result in markdown."""
+        tables = []
+        for node_with_score in retrieved_nodes:
+            node = node_with_score.node
+            metadata = node.metadata
+
+            col_keys = metadata.get("col_keys", [])
+            results = metadata.get("result", [])
+            table_header = "| " + " | ".join(col_keys) + " |\n"
+            table_separator = "|" + "|".join(["---"] * len(col_keys)) + "|\n"
+
+            table_rows = ""
+            for row in results:
+                table_rows += "| " + " | ".join(str(item) for item in row) + " |\n"
+
+            markdown_table = table_header + table_separator + table_rows
+            tables.append(markdown_table)
+
+        return "\n\n".join(tables).strip()
 
     def _query(self, query_bundle: QueryBundle) -> RESPONSE_TYPE:
         """Answer a query."""
@@ -402,7 +430,10 @@ class BaseSQLTableQueryEngine(BaseQueryEngine):
                 return cast(StreamingResponse, response)
             return cast(Response, response)
         else:
-            response_str = "\n".join([node.text for node in retrieved_nodes])
+            if self._markdown_response:
+                response_str = self._format_result_markdown(retrieved_nodes)
+            else:
+                response_str = "\n".join([node.text for node in retrieved_nodes])
             return Response(response=response_str, metadata=metadata)
 
     async def _aquery(self, query_bundle: QueryBundle) -> RESPONSE_TYPE:
@@ -457,9 +488,13 @@ class NLSQLTableQueryEngine(BaseSQLTableQueryEngine):
         text_to_sql_prompt: Optional[BasePromptTemplate] = None,
         context_query_kwargs: Optional[dict] = None,
         synthesize_response: bool = True,
+        markdown_response: bool = False,
         response_synthesis_prompt: Optional[BasePromptTemplate] = None,
         refine_synthesis_prompt: Optional[BasePromptTemplate] = None,
         tables: Optional[Union[List[str], List[Table]]] = None,
+        table_retriever: Optional[ObjectRetriever[SQLTableSchema]] = None,
+        rows_retrievers: Optional[dict[str, BaseRetriever]] = None,
+        cols_retrievers: Optional[dict[str, dict[str, BaseRetriever]]] = None,
         context_str_prefix: Optional[str] = None,
         embed_model: Optional[BaseEmbedding] = None,
         sql_only: bool = False,
@@ -475,6 +510,9 @@ class NLSQLTableQueryEngine(BaseSQLTableQueryEngine):
             text_to_sql_prompt=text_to_sql_prompt,
             context_query_kwargs=context_query_kwargs,
             tables=tables,
+            table_retriever=table_retriever,
+            rows_retrievers=rows_retrievers,
+            cols_retrievers=cols_retrievers,
             context_str_prefix=context_str_prefix,
             embed_model=embed_model,
             sql_only=sql_only,
@@ -483,6 +521,7 @@ class NLSQLTableQueryEngine(BaseSQLTableQueryEngine):
         )
         super().__init__(
             synthesize_response=synthesize_response,
+            markdown_response=markdown_response,
             response_synthesis_prompt=response_synthesis_prompt,
             refine_synthesis_prompt=refine_synthesis_prompt,
             llm=llm,
@@ -498,7 +537,8 @@ class NLSQLTableQueryEngine(BaseSQLTableQueryEngine):
 
 
 class PGVectorSQLQueryEngine(BaseSQLTableQueryEngine):
-    """PGvector SQL query engine.
+    """
+    PGvector SQL query engine.
 
     A modified version of the normal text-to-SQL query engine because
     we can infer embedding vectors in the sql query.
@@ -562,6 +602,8 @@ class SQLTableRetrieverQueryEngine(BaseSQLTableQueryEngine):
         self,
         sql_database: SQLDatabase,
         table_retriever: ObjectRetriever[SQLTableSchema],
+        rows_retrievers: Optional[dict[str, BaseRetriever]] = None,
+        cols_retrievers: Optional[dict[str, dict[str, BaseRetriever]]] = None,
         llm: Optional[LLM] = None,
         text_to_sql_prompt: Optional[BasePromptTemplate] = None,
         context_query_kwargs: Optional[dict] = None,
@@ -580,9 +622,12 @@ class SQLTableRetrieverQueryEngine(BaseSQLTableQueryEngine):
             text_to_sql_prompt=text_to_sql_prompt,
             context_query_kwargs=context_query_kwargs,
             table_retriever=table_retriever,
+            rows_retrievers=rows_retrievers,
+            cols_retrievers=cols_retrievers,
             context_str_prefix=context_str_prefix,
             sql_only=sql_only,
             callback_manager=callback_manager,
+            verbose=kwargs.get("verbose", False),
         )
         super().__init__(
             synthesize_response=synthesize_response,

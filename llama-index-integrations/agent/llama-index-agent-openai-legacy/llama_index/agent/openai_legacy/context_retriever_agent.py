@@ -1,5 +1,6 @@
 """Context retriever agent."""
 
+import deprecated
 from typing import List, Optional, Type, Union
 
 from llama_index.agent.openai_legacy.openai_agent import (
@@ -20,7 +21,6 @@ from llama_index.core.settings import Settings
 from llama_index.core.tools import BaseTool
 from llama_index.core.utils import print_text
 from llama_index.llms.openai import OpenAI
-from llama_index.llms.openai.utils import is_function_calling_model
 
 # inspired by DEFAULT_QA_PROMPT_TMPL from llama_index/prompts/default_prompts.py
 DEFAULT_QA_PROMPT_TMPL = (
@@ -34,8 +34,17 @@ DEFAULT_QA_PROMPT_TMPL = (
 DEFAULT_QA_PROMPT = PromptTemplate(DEFAULT_QA_PROMPT_TMPL)
 
 
+@deprecated.deprecated(
+    reason=(
+        "ContextRetrieverOpenAIAgent has been deprecated and is not maintained.\n\n"
+        "`FunctionAgent` is the recommended replacement.\n\n"
+        "See the docs for more information on updated agent usage: https://docs.llamaindex.ai/en/stable/understanding/agent/"
+    ),
+    action="once",
+)
 class ContextRetrieverOpenAIAgent(BaseOpenAIAgent):
-    """ContextRetriever OpenAI Agent.
+    """
+    ContextRetriever OpenAI Agent.
 
     This agent performs retrieval from BaseRetriever before
     calling the LLM. Allows it to augment user message with context.
@@ -99,7 +108,8 @@ class ContextRetrieverOpenAIAgent(BaseOpenAIAgent):
         system_prompt: Optional[str] = None,
         prefix_messages: Optional[List[ChatMessage]] = None,
     ) -> "ContextRetrieverOpenAIAgent":
-        """Create a ContextRetrieverOpenAIAgent from a retriever.
+        """
+        Create a ContextRetrieverOpenAIAgent from a retriever.
 
         Args:
             retriever (BaseRetriever): A retriever.
@@ -122,7 +132,7 @@ class ContextRetrieverOpenAIAgent(BaseOpenAIAgent):
 
         memory = memory or memory_cls.from_defaults(chat_history=chat_history, llm=llm)
 
-        if not is_function_calling_model(llm.model):
+        if not llm.metadata.is_function_calling_model:
             raise ValueError(
                 f"Model name {llm.model} does not support function calling API."
             )

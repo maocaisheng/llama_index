@@ -80,7 +80,13 @@ class SimpleChatEngine(BaseChatEngine):
         if hasattr(self._memory, "tokenizer_fn"):
             initial_token_count = len(
                 self._memory.tokenizer_fn(
-                    " ".join([(m.content or "") for m in self._prefix_messages])
+                    " ".join(
+                        [
+                            (m.content or "")
+                            for m in self._prefix_messages
+                            if isinstance(m.content, str)
+                        ]
+                    )
                 )
             )
         else:
@@ -107,7 +113,13 @@ class SimpleChatEngine(BaseChatEngine):
         if hasattr(self._memory, "tokenizer_fn"):
             initial_token_count = len(
                 self._memory.tokenizer_fn(
-                    " ".join([(m.content or "") for m in self._prefix_messages])
+                    " ".join(
+                        [
+                            (m.content or "")
+                            for m in self._prefix_messages
+                            if isinstance(m.content, str)
+                        ]
+                    )
                 )
             )
         else:
@@ -132,25 +144,31 @@ class SimpleChatEngine(BaseChatEngine):
         self, message: str, chat_history: Optional[List[ChatMessage]] = None
     ) -> AgentChatResponse:
         if chat_history is not None:
-            self._memory.set(chat_history)
-        self._memory.put(ChatMessage(content=message, role="user"))
+            await self._memory.aset(chat_history)
+        await self._memory.aput(ChatMessage(content=message, role="user"))
 
         if hasattr(self._memory, "tokenizer_fn"):
             initial_token_count = len(
                 self._memory.tokenizer_fn(
-                    " ".join([(m.content or "") for m in self._prefix_messages])
+                    " ".join(
+                        [
+                            (m.content or "")
+                            for m in self._prefix_messages
+                            if isinstance(m.content, str)
+                        ]
+                    )
                 )
             )
         else:
             initial_token_count = 0
 
-        all_messages = self._prefix_messages + self._memory.get(
-            initial_token_count=initial_token_count
+        all_messages = self._prefix_messages + (
+            await self._memory.aget(initial_token_count=initial_token_count)
         )
 
         chat_response = await self._llm.achat(all_messages)
         ai_message = chat_response.message
-        self._memory.put(ai_message)
+        await self._memory.aput(ai_message)
 
         return AgentChatResponse(response=str(chat_response.message.content))
 
@@ -159,26 +177,34 @@ class SimpleChatEngine(BaseChatEngine):
         self, message: str, chat_history: Optional[List[ChatMessage]] = None
     ) -> StreamingAgentChatResponse:
         if chat_history is not None:
-            self._memory.set(chat_history)
-        self._memory.put(ChatMessage(content=message, role="user"))
+            await self._memory.aset(chat_history)
+        await self._memory.aput(ChatMessage(content=message, role="user"))
 
         if hasattr(self._memory, "tokenizer_fn"):
             initial_token_count = len(
                 self._memory.tokenizer_fn(
-                    " ".join([(m.content or "") for m in self._prefix_messages])
+                    " ".join(
+                        [
+                            (m.content or "")
+                            for m in self._prefix_messages
+                            if isinstance(m.content, str)
+                        ]
+                    )
                 )
             )
         else:
             initial_token_count = 0
 
-        all_messages = self._prefix_messages + self._memory.get(
-            initial_token_count=initial_token_count
+        all_messages = self._prefix_messages + (
+            await self._memory.aget(initial_token_count=initial_token_count)
         )
 
         chat_response = StreamingAgentChatResponse(
             achat_stream=await self._llm.astream_chat(all_messages)
         )
-        asyncio.create_task(chat_response.awrite_response_to_history(self._memory))
+        chat_response.awrite_response_to_history_task = asyncio.create_task(
+            chat_response.awrite_response_to_history(self._memory)
+        )
 
         return chat_response
 
